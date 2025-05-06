@@ -10,6 +10,14 @@
 
 #define ECHO_PIN    BIT0    // P2.0 for echo (TB1.1 / CCI1A)
 
+#define LED_OUT     P1OUT
+#define LED_DIR     P1DIR
+#define LED_PIN     BIT0
+
+
+volatile uint8_t overflow_count = 0;
+volatile uint32_t seconds_elapsed = 0;
+
 volatile uint16_t t_start = 0;
 volatile uint16_t t_end   = 0;
 volatile uint8_t  ready   = 0;
@@ -66,19 +74,54 @@ int main(void) {
     init_echo_capture();
     setup_gpio_led();
     setupRGBLED();             // Sets up RGB LED and buzzer pin (P6.3 on TB3.4)
+    
+    // Setup LED
+    P1DIR |= BIT0;
+    P1OUT &= ~BIT0;
+
+    // Setup Pomodoro Timer
+    TB0CTL |= TBCLR;
+    TB0CTL |= TBSSEL__SMCLK;    // Source=SMCLK
+    TB0CTL |= MC__CONTINUOUS;
+    TB0CTL |= ID__8;            // Divide-by-8;
+
+    // Setup Timer Overflow IRQ
+    TB0CTL &= ~TBIFG;
+    TB0CTL |= TBIE;
+    
+    
+    
+    
     __enable_interrupt();
 
     while (1) {
-        buzzer_on();
-        __delay_cycles(10000);
+        // buzzer_on();
+        // __delay_cycles(10000);
 
-        buzzer_off();
-        __delay_cycles(10000);
+        // buzzer_off();
+        // __delay_cycles(10000);
         
-        uint16_t ticks = get_pulse_width_us();
-        float distance_cm = ticks / 58.0f;  // rough conversion for 1.5MHz clock
+        // uint16_t ticks = get_pulse_width_us();
+        // float distance_cm = ticks / 58.0f;  // rough conversion for 1.5MHz clock
 
-        if (distance_cm < 10) P1OUT |= BIT0;
-        else P1OUT &= ~BIT0;
+        // if (distance_cm < 10) P1OUT |= BIT0;
+        // else P1OUT &= ~BIT0;
     }
+}
+
+
+//-- Interrupt Service Routines --------
+#pragma vector = TIMER0_B1_VECTOR
+__interrupt void ISR_TB0_Overflow(void)
+{  
+    if (TB0IV == TB0IV_TBIFG) {
+        overflow_count++;
+        if (overflow_count >= 2) {        // ~1 second
+            overflow_count = 0;
+            seconds_elapsed++;
+
+            LED_OUT ^= LED_PIN;           // Blink LED every second
+        }
+    }
+
 }
