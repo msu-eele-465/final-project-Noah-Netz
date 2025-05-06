@@ -3,9 +3,12 @@
 #include "src/RGB_LED.h"
 
 // State Machine
-typedef enum { IDLE, FOCUS, BREAK, OVERTIME } PomodoroState;
+typedef enum { IDLE, FOCUS, BREAK, GRACE, OVERTIME } PomodoroState;
 PomodoroState current_state = IDLE;
+PomodoroState last_state = IDLE;
 
+
+// Distance Sensor
 #define TRIG_PORT   P2OUT
 #define TRIG_DIR    P2DIR
 #define TRIG_SEL0   P2SEL0
@@ -14,10 +17,12 @@ PomodoroState current_state = IDLE;
 
 #define ECHO_PIN    BIT0    // P2.0 for echo (TB1.1 / CCI1A)
 
+// Heartbeat LED
 #define LED_OUT     P1OUT
 #define LED_DIR     P1DIR
 #define LED_PIN     BIT0
 
+// Push Button
 #define BUTTON_PIN  BIT0
 #define BUTTON_PORT P4IN
 #define BUTTON_DIR  P4DIR
@@ -27,10 +32,13 @@ PomodoroState current_state = IDLE;
 #define BUTTON_IES  P4IES
 #define BUTTON_IFG  P4IFG
 
-#define FOCUS_DURATION 100      // Seconds (change to 1500 for 25min)
-#define BREAK_DURATION 50       // Seconds (change to 300 for 5min)
-#define SLAVE_ADDR 0x42
+// Pomodoro Times
+#define FOCUS_DURATION 10      // Seconds (change to 1500 for 25min)
+#define BREAK_DURATION 10       // Seconds (change to 300 for 5min)
+#define GRACE_DURATION 200       // Seconds (change to 60 for 1 minute grace period)
 
+
+#define SLAVE_ADDR 0x42
 
 volatile uint8_t overflow_count = 0;
 volatile uint32_t seconds_elapsed = 0;
@@ -43,6 +51,8 @@ volatile uint16_t t_end   = 0;
 volatile uint8_t  ready   = 0;
 
 volatile bool button_pressed = false;
+
+volatile uint8_t buzzer_on_flag = 0;
 
 char packet[] = {0x03};
 int data_Cnt = 0;
@@ -135,8 +145,10 @@ void init_button(void) {
 
 
 void transitionTo(PomodoroState next) {
+    last_state = current_state;
     current_state = next;
     seconds_elapsed = 0;
+    led_update_pending = 0;
 
     switch (next) {
         case FOCUS:
@@ -147,10 +159,17 @@ void transitionTo(PomodoroState next) {
             break;
         case OVERTIME:
             updateRGB(0, 255, 255);  // Start with Red
+            buzzer_on();
+            buzzer_on_flag = 1;      // Mark buzzer as active
+            break;
+        case GRACE:
+            updateRGB(0, 128, 255);
+            buzzer_on();
+            buzzer_on_flag = 1;
             break;
         case IDLE:
         default:
-            updateRGB(0, 120, 235); // Orange/locked
+            updateRGB(0, 255, 0);  // Purple 
             //updateRGB(0, 255, 0);
             break;
     }
@@ -218,10 +237,11 @@ int main(void) {
     //sendCommandByte(0x00);
 
     while (1) {
-        if (led_update_pending) {
+        if (led_update_pending && (current_state == FOCUS || current_state == BREAK)) {
             sendCommandByte(led_level_to_send);
             led_update_pending = 0;
         }
+
 
         switch (current_state) {
             case IDLE:
@@ -235,8 +255,8 @@ int main(void) {
                 if (button_pressed) {
                     button_pressed = false;
                     transitionTo(BREAK);
-                } else if (seconds_elapsed >= FOCUS_DURATION) {
-                    transitionTo(OVERTIME);
+                } else if (seconds_elapsed > FOCUS_DURATION) {
+                    transitionTo(GRACE);
                 }
                 break;
 
@@ -244,7 +264,19 @@ int main(void) {
                 if (button_pressed) {
                     button_pressed = false;
                     transitionTo(FOCUS);
-                } else if (seconds_elapsed >= BREAK_DURATION) {
+                } else if (seconds_elapsed > BREAK_DURATION) {
+                    transitionTo(GRACE);
+                }
+                break;
+
+            case GRACE:
+                if (button_pressed) {
+                    button_pressed = false;
+                    if (last_state == FOCUS)
+                        transitionTo(BREAK);
+                    else if (last_state == BREAK)
+                        transitionTo(FOCUS);
+                } else if (seconds_elapsed >= GRACE_DURATION) {
                     transitionTo(OVERTIME);
                 }
                 break;
@@ -307,7 +339,19 @@ __interrupt void ISR_TB0_Overflow(void)
                 case BREAK:
                     level = (seconds_elapsed * 8) / BREAK_DURATION;
                     break;
+
+                case GRACE:
+                    if (seconds_elapsed == 2 && buzzer_on_flag) {
+                        buzzer_off();
+                        buzzer_on_flag = 0;
+                    }
+                    return;
+
                 case OVERTIME:
+                    if (seconds_elapsed == 2 && buzzer_on_flag) {
+                        buzzer_off();
+                        buzzer_on_flag = 0;
+                    }
                     if (seconds_elapsed % 2 == 0)
                         updateRGB(0, 255, 255);  // Red
                     else
@@ -316,10 +360,11 @@ __interrupt void ISR_TB0_Overflow(void)
                 default:
                     return;
             }
-            if (level > 8) level = 8;
+            if (level <= 8) {
+                led_level_to_send = level;
+                led_update_pending = 1;
+            }
 
-            led_level_to_send = level;
-            led_update_pending = 1;
         }
     }
 }
@@ -341,7 +386,7 @@ __interrupt void Port_4_ISR(void) {
         BUTTON_IE &= ~BUTTON_PIN;       // Disable button interrupt
         BUTTON_IFG &= ~BUTTON_PIN;      // Clear flag
 
-        __delay_cycles(16000);          // ~1ms debounce at 16MHz (adjust if needed)
+        __delay_cycles(500);
 
         if (!(BUTTON_PORT & BUTTON_PIN)) { // Confirm button is still pressed
             button_pressed = true;

@@ -31,7 +31,7 @@ void setupRGBLED(void) {
 
 // Turn buzzer ON with 50% duty cycle
 void buzzer_on(void) {
-    TB3CCR4 = Max_PWM / 2;  // 50% duty
+    TB3CCR4 = Max_PWM / 4;  // 50% duty
 }
 
 // Turn buzzer OFF
