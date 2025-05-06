@@ -24,24 +24,6 @@
 #define LED_MASK_P1 (LED4 | LED5 | LED6 | LED7 | LED8)
 #define ALL_LED_P2 (LED1 | LED2 | LED3)
 
-// Pattern Enum
-typedef enum {
-    Pattern_Off = -1,
-    Pattern_0_Static = 0,  // Static
-    Pattern_1_Toggle = 1,  // Toggle
-    Pattern_2_Up = 2,      // Up Counter
-    Pattern_3_In_Out = 3   // In & Out
-} led_pattern_t;
-
-// Function Prototypes
-void setupTimer(void);
-void updateTimerPeriod(void);
-void increaseTimerPeriod(void);
-void decreaseTimerPeriod(void);
-void array_init(void);
-void selectPattern(led_pattern_t pattern);
-void updatePattern(void);
-
 // I2C
 #define SLAVE_ADDR 0x42
 
