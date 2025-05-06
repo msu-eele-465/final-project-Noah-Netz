@@ -27,8 +27,8 @@ PomodoroState current_state = IDLE;
 #define BUTTON_IES  P4IES
 #define BUTTON_IFG  P4IFG
 
-#define FOCUS_DURATION 10      // Seconds (change to 1500 for 25min)
-#define BREAK_DURATION 5       // Seconds (change to 300 for 5min)
+#define FOCUS_DURATION 100      // Seconds (change to 1500 for 25min)
+#define BREAK_DURATION 50       // Seconds (change to 300 for 5min)
 #define SLAVE_ADDR 0x42
 
 
@@ -140,17 +140,18 @@ void transitionTo(PomodoroState next) {
 
     switch (next) {
         case FOCUS:
-            updateRGB(0, 255, 0);  // Green
+            updateRGB(255, 0, 255);  // Green
             break;
         case BREAK:
-            updateRGB(0, 0, 255);  // Blue
+            updateRGB(255, 255, 0);  // Blue
             break;
         case OVERTIME:
-            updateRGB(255, 0, 0);  // Start with Red
+            updateRGB(0, 255, 255);  // Start with Red
             break;
         case IDLE:
         default:
-            updateRGB(196, 62, 29); // Orange/locked
+            updateRGB(0, 120, 235); // Orange/locked
+            //updateRGB(0, 255, 0);
             break;
     }
 }
@@ -256,6 +257,8 @@ int main(void) {
                 break;
         }
 
+        //updateRGB(255, 0, 0);
+
         // buzzer_on();
         // __delay_cycles(10000);
 
@@ -306,9 +309,9 @@ __interrupt void ISR_TB0_Overflow(void)
                     break;
                 case OVERTIME:
                     if (seconds_elapsed % 2 == 0)
-                        updateRGB(255, 0, 0);  // Red
+                        updateRGB(0, 255, 255);  // Red
                     else
-                        updateRGB(0, 0, 255);  // Blue
+                        updateRGB(255, 255, 0);  // Blue
                     return;
                 default:
                     return;
@@ -335,11 +338,17 @@ __interrupt void EUSCI_B0_I2C_ISR(void){
 #pragma vector = PORT4_VECTOR
 __interrupt void Port_4_ISR(void) {
     if (BUTTON_IFG & BUTTON_PIN) {
-        BUTTON_IFG &= ~BUTTON_PIN;   // Clear flag
+        BUTTON_IE &= ~BUTTON_PIN;       // Disable button interrupt
+        BUTTON_IFG &= ~BUTTON_PIN;      // Clear flag
 
-        // Reset session
-        button_pressed = true;
-        // seconds_elapsed = 0;
-        // overflow_count = 0;
+        __delay_cycles(16000);          // ~1ms debounce at 16MHz (adjust if needed)
+
+        if (!(BUTTON_PORT & BUTTON_PIN)) { // Confirm button is still pressed
+            button_pressed = true;
+        }
+
+        BUTTON_IFG &= ~BUTTON_PIN;      // Clear flag again just in case
+        BUTTON_IE |= BUTTON_PIN;        // Re-enable interrupt
     }
 }
+

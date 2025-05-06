@@ -31,10 +31,4 @@ void setupRGBLED(void);
 void buzzer_on(void);
 void buzzer_off(void);
 
-// Colors
-#define COLOR_FOCUS    updateRGB(0, 255, 0)    // Green
-#define COLOR_BREAK    updateRGB(0, 0, 255)    // Blue
-#define COLOR_OVERTIME updateRGB(255, 0, 0)    // Red
-#define COLOR_IDLE      updateRGB(196, 62, 29)   // Dark orange
-
 #endif // RGB_LED_H
