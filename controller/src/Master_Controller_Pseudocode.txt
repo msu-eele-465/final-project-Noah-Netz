@@ -1,0 +1,39 @@
+// --- Initialization ---
+1. Stop watchdog timer
+2. Unlock GPIO from high-impedance (PM5CTL0 &= ~LOCKLPM5)
+3. Set P1.2 as SDA, P1.1 as SCL
+4. Put UCB0 into reset (UCB0CTLW0 |= UCSWRST)
+5. Configure UCB0CTLW0:
+   - Master mode (UCMST)
+   - I2C mode (UCMODE_3)
+   - Synchronous mode (UCSYNC)
+   - Use SMCLK (UCSSEL__SMCLK)
+6. Set I2C clock (UCB0BRW = SMCLK / 100kHz)
+7. Set slave address (UCB0I2CSA = 0x42)
+8. Take UCB0 out of reset (UCB0CTLW0 &= ~UCSWRST)
+
+// --- Main Loop ---
+loop forever {
+    check keypad
+
+    if (locked) {
+        check for correct 4-digit unlock code
+        if (unlocked) update status LED
+    }
+
+    if (unlocked) {
+        if (any key is pressed) {
+            // For LCD (future): send key over I2C to LCD address
+        }
+
+        if (pattern key is pressed: '1', '2', or '3') {
+            // Send pattern selection to LED bar at address 0x42
+            wait until I2C bus is free (UCB0STATW & UCBBUSY == 0)
+            UCB0CTLW0 |= UCTR | UCTXSTT   // Transmit mode + Start
+            wait for UCTXIFG
+            UCB0TXBUF = '1' (or '2', '3', etc.)
+            wait for UCTXIFG
+            UCB0CTLW0 |= UCTXSTP          // Send stop condition
+        }
+    }
+}
