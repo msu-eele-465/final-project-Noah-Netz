@@ -35,7 +35,7 @@ PomodoroState last_state = IDLE;
 // Pomodoro Times
 #define FOCUS_DURATION 10      // Seconds (change to 1500 for 25min)
 #define BREAK_DURATION 10       // Seconds (change to 300 for 5min)
-#define GRACE_DURATION 200       // Seconds (change to 60 for 1 minute grace period)
+#define GRACE_DURATION 20       // Seconds (change to 60 for 1 minute grace period)
 
 
 #define SLAVE_ADDR 0x42
@@ -49,6 +49,10 @@ volatile uint8_t led_level_to_send = 0;
 volatile uint16_t t_start = 0;
 volatile uint16_t t_end   = 0;
 volatile uint8_t  ready   = 0;
+volatile float last_distance_cm = 0;
+volatile uint8_t distance_check_pending = 0;
+
+
 
 volatile bool button_pressed = false;
 
@@ -106,8 +110,8 @@ void init_trigger_pwm(void) {
     TRIG_SEL0 |= TRIG_PIN;
     TRIG_SEL1 &= ~TRIG_PIN;
 
-    TB1CCR0 = 37500 - 1;             // ~26.6ms period (assuming 1.5MHz SMCLK)
-    TB1CCR2 = 750;                  // ~0.5ms high pulse
+    TB1CCR0 = 28196 - 1;             // ~26.6ms period (assuming 1.5MHz SMCLK)
+    TB1CCR2 = 530;                  // ~0.5ms high pulse
     TB1CCTL2 = OUTMOD_7;           // Reset/Set mode
     TB1CTL = TBSSEL__SMCLK | MC__UP | TBCLR;
 }
@@ -129,8 +133,19 @@ void setup_gpio_led(void) {
 uint16_t get_pulse_width_us(void) {
     ready = 0;
     while (!ready);
-    return t_end - t_start;  // Timer ticks
+
+    if (t_end >= t_start) {
+        return t_end - t_start;
+    } else {
+        return t_start - t_end;
+    }
 }
+
+
+bool phone_is_present(void) {
+    return last_distance_cm < 10.0f;
+}
+
 
 
 void init_button(void) {
@@ -170,7 +185,6 @@ void transitionTo(PomodoroState next) {
         case IDLE:
         default:
             updateRGB(0, 255, 0);  // Purple 
-            //updateRGB(0, 255, 0);
             break;
     }
 }
@@ -237,17 +251,70 @@ int main(void) {
     //sendCommandByte(0x00);
 
     while (1) {
+        // P6OUT |= BIT6;                      // LED ON
+        // __delay_cycles(500000);          // Delay for ~1 second at 24 MHz (adjust this as needed)
+        // P6OUT &= ~BIT6;                    // LED OFF
+        // __delay_cycles(500000);          // Delay for ~1 second
         if (led_update_pending && (current_state == FOCUS || current_state == BREAK)) {
             sendCommandByte(led_level_to_send);
             led_update_pending = 0;
         }
 
+        if (distance_check_pending) {
+            distance_check_pending = 0;
+
+            uint16_t ticks = get_pulse_width_us();
+            last_distance_cm = ticks / 58.0f;
+        }
+
+        static bool phone_was_present = false;
+        bool phone_present = phone_is_present();
+
+        // Check for removal mid-session
+        if (phone_was_present && !phone_present && current_state != IDLE && current_state != BREAK && current_state != OVERTIME) {
+            transitionTo(IDLE);
+            buzzer_on();
+            __delay_cycles(2120000);  // 2 seconds
+            buzzer_off();
+            phone_was_present = false;  // Reset
+            continue;  // Skip rest of loop
+        }
+
+        // Update history
+        phone_was_present = phone_present;
+
+
+        // if (button_pressed) {
+        //     button_pressed = false;
+
+        //     uint16_t ticks = get_pulse_width_us();
+        //     //float distance_cm = ticks * 0.00374f;
+        //     float distance_cm = ticks / 58.0f;
+
+
+        //     // Visualize distance with RGB
+        //     if (ticks == 0 || distance_cm > 50.0f) {
+        //         updateRGB(255, 255, 0);  // Blue  // Blue = out of range
+        //     } else if (distance_cm < 5.0f) {
+        //         updateRGB(0, 255, 255);  // Red = very close
+        //     } else if (distance_cm < 10.0f) {
+        //         updateRGB(0, 0, 255);  // Yellow
+        //     } else if (distance_cm < 20.0f) {
+        //         updateRGB(255, 0, 255);  // Green
+        //     } else {
+        //         updateRGB(255, 0, 0);  // Cyan = far
+        //     }
+        // }
+
+
 
         switch (current_state) {
             case IDLE:
                 if (button_pressed) {
+                    if (phone_present) {
+                        transitionTo(FOCUS);
+                    }
                     button_pressed = false;
-                    transitionTo(FOCUS);
                 }
                 break;
 
@@ -288,6 +355,11 @@ int main(void) {
                 }
                 break;
         }
+
+
+
+
+
 
         //updateRGB(255, 0, 0);
 
@@ -330,6 +402,7 @@ __interrupt void ISR_TB0_Overflow(void)
             seconds_elapsed++;
 
             LED_OUT ^= LED_PIN;  // Heartbeat
+            distance_check_pending = 1;
 
             uint8_t level = 0;
             switch (current_state) {
