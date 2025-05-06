@@ -1,5 +1,6 @@
 #include <msp430fr2355.h>
 #include <stdint.h>
+#include "src/RGB_LED.h"
 
 #define TRIG_PORT   P2OUT
 #define TRIG_DIR    P2DIR
@@ -64,9 +65,16 @@ int main(void) {
     init_trigger_pwm();
     init_echo_capture();
     setup_gpio_led();
+    setupRGBLED();             // Sets up RGB LED and buzzer pin (P6.3 on TB3.4)
     __enable_interrupt();
 
     while (1) {
+        buzzer_on();
+        __delay_cycles(10000);
+
+        buzzer_off();
+        __delay_cycles(10000);
+        
         uint16_t ticks = get_pulse_width_us();
         float distance_cm = ticks / 58.0f;  // rough conversion for 1.5MHz clock
 
